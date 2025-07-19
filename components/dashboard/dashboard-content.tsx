@@ -23,23 +23,20 @@ interface Profile {
   created_at: string
 }
 
-interface MarketDataItem {
-  name: string
-  value: number
-  change: number
-  iconType: "dollar" | "bar" | "trendingUp" | "trendingDown"
-}
-
 interface DashboardContentProps {
   user: User
   profile: Profile | null
 }
 
 export default function DashboardContent({ user, profile }: DashboardContentProps) {
-  const [marketDataItems, setMarketDataItems] = useState<MarketDataItem[]>([])
+  const [marketData, setMarketData] = useState({
+    sp500: { value: 4500.25, change: 1.2 },
+    nasdaq: { value: 14250.75, change: -0.8 },
+    dow: { value: 35000.5, change: 0.5 },
+  })
+  const [displayMarketData, setDisplayMarketData] = useState(marketData)
   const [loadingMarketData, setLoadingMarketData] = useState(false)
   const [selectedStock, setSelectedStock] = useState<string | null>(null)
-  const [currentDisplayIndex, setCurrentDisplayIndex] = useState(0)
 
   const router = useRouter()
   const supabase = createClient()
@@ -65,7 +62,15 @@ export default function DashboardContent({ user, profile }: DashboardContentProp
     setSelectedStock(null)
   }
 
-  // Fetch real market data and combine with mock stock data for cycling
+  // Function to simulate small fluctuations
+  const simulateFluctuation = (currentValue: number, currentChange: number) => {
+    const fluctuation = Math.random() * 0.2 - 0.1 // +/- 0.1%
+    const newChange = Number.parseFloat((currentChange + fluctuation).toFixed(2))
+    const newValue = Number.parseFloat((currentValue * (1 + newChange / 100)).toFixed(2))
+    return { value: newValue, change: newChange }
+  }
+
+  // Fetch real market data every 5 minutes
   useEffect(() => {
     const fetchMarketData = async () => {
       setLoadingMarketData(true)
@@ -73,20 +78,8 @@ export default function DashboardContent({ user, profile }: DashboardContentProp
         const response = await fetch("/api/market/overview")
         if (response.ok) {
           const data = await response.json()
-          const combinedData: MarketDataItem[] = [
-            { name: "S&P 500", value: data.sp500.value, change: data.sp500.change, iconType: "dollar" },
-            { name: "NASDAQ", value: data.nasdaq.value, change: data.nasdaq.change, iconType: "bar" },
-            { name: "Dow Jones", value: data.dow.value, change: data.dow.change, iconType: "trendingUp" },
-            // Add mock stock data for cycling
-            { name: "Apple Inc. (AAPL)", value: 175.3, change: 0.75, iconType: "trendingUp" },
-            { name: "Microsoft Corp. (MSFT)", value: 320.1, change: -0.2, iconType: "trendingDown" },
-            { name: "Google (GOOGL)", value: 140.5, change: 1.5, iconType: "trendingUp" },
-            { name: "Amazon (AMZN)", value: 135.8, change: 0.9, iconType: "trendingUp" },
-            { name: "Tesla (TSLA)", value: 250.0, change: -1.5, iconType: "trendingDown" },
-            { name: "NVIDIA (NVDA)", value: 950.0, change: 2.1, iconType: "trendingUp" },
-            { name: "Meta Platforms (META)", value: 480.0, change: 0.55, iconType: "trendingUp" },
-          ]
-          setMarketDataItems(combinedData)
+          setMarketData(data)
+          setDisplayMarketData(data) // Reset display data to actual data
         }
       } catch (error) {
         console.error("Failed to fetch market data:", error)
@@ -96,60 +89,27 @@ export default function DashboardContent({ user, profile }: DashboardContentProp
     }
 
     fetchMarketData()
-    // Refresh market data every 5 minutes (for the initial set)
-    const refreshInterval = setInterval(fetchMarketData, 5 * 60 * 1000)
-    return () => clearInterval(refreshInterval)
+    const interval = setInterval(fetchMarketData, 5 * 60 * 1000) // Fetch every 5 minutes
+    return () => clearInterval(interval)
   }, [])
 
-  // Effect for cycling through market data items
+  // Simulate market data changes every 7 seconds
   useEffect(() => {
-    if (marketDataItems.length > 0) {
-      const cycleInterval = setInterval(() => {
-        setCurrentDisplayIndex((prevIndex) => (prevIndex + 1) % marketDataItems.length)
-      }, 7000) // Cycle every 7 seconds
-      return () => clearInterval(cycleInterval)
-    }
-  }, [marketDataItems]) // Depend on marketDataItems to start cycling once data is loaded
+    const simulationInterval = setInterval(() => {
+      setDisplayMarketData((prevData) => ({
+        sp500: simulateFluctuation(prevData.sp500.value, prevData.sp500.change),
+        nasdaq: simulateFluctuation(prevData.nasdaq.value, prevData.nasdaq.change),
+        dow: simulateFluctuation(prevData.dow.value, prevData.dow.change),
+      }))
+    }, 7000) // Update every 7 seconds
 
-  const getIconComponent = (iconType: MarketDataItem["iconType"]) => {
-    switch (iconType) {
-      case "dollar":
-        return DollarSign
-      case "bar":
-        return BarChart3
-      case "trendingUp":
-        return TrendingUp
-      case "trendingDown":
-        return TrendingDown
-      default:
-        return TrendingUp
-    }
-  }
+    return () => clearInterval(simulationInterval)
+  }, []) // Run once on mount
 
-  const displayedCards = []
-  if (marketDataItems.length > 0) {
-    for (let i = 0; i < 3; i++) {
-      const item = marketDataItems[(currentDisplayIndex + i) % marketDataItems.length]
-      if (item) {
-        const IconComponent = getIconComponent(item.iconType)
-        displayedCards.push(
-          <Card key={item.name}>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{item.name}</CardTitle>
-              <IconComponent className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{item.value.toLocaleString()}</div>
-              <p className={`text-xs flex items-center ${item.change >= 0 ? "text-green-600" : "text-red-600"}`}>
-                {item.change >= 0 ? <TrendingUp className="h-3 w-3 mr-1" /> : <TrendingDown className="h-3 w-3 mr-1" />}
-                {item.change}%
-              </p>
-            </CardContent>
-          </Card>,
-        )
-      }
-    }
-  }
+  // Update displayMarketData when marketData changes (from 5-min fetch)
+  useEffect(() => {
+    setDisplayMarketData(marketData)
+  }, [marketData])
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -179,7 +139,79 @@ export default function DashboardContent({ user, profile }: DashboardContentProp
 
       <div className="p-6">
         {/* Market Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">{displayedCards}</div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <Card className="transition-all duration-500 hover:shadow-lg">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">S&P 500</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold transition-all duration-300">
+                {displayMarketData.sp500.value.toLocaleString()}
+              </div>
+              <p
+                className={`text-xs flex items-center transition-all duration-300 ${
+                  displayMarketData.sp500.change >= 0 ? "text-green-600" : "text-red-600"
+                }`}
+              >
+                {displayMarketData.sp500.change >= 0 ? (
+                  <TrendingUp className="h-3 w-3 mr-1" />
+                ) : (
+                  <TrendingDown className="h-3 w-3 mr-1" />
+                )}
+                {displayMarketData.sp500.change}%
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="transition-all duration-500 hover:shadow-lg">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">NASDAQ</CardTitle>
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold transition-all duration-300">
+                {displayMarketData.nasdaq.value.toLocaleString()}
+              </div>
+              <p
+                className={`text-xs flex items-center transition-all duration-300 ${
+                  displayMarketData.nasdaq.change >= 0 ? "text-green-600" : "text-red-600"
+                }`}
+              >
+                {displayMarketData.nasdaq.change >= 0 ? (
+                  <TrendingUp className="h-3 w-3 mr-1" />
+                ) : (
+                  <TrendingDown className="h-3 w-3 mr-1" />
+                )}
+                {displayMarketData.nasdaq.change}%
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card className="transition-all duration-500 hover:shadow-lg">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Dow Jones</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold transition-all duration-300">
+                {displayMarketData.dow.value.toLocaleString()}
+              </div>
+              <p
+                className={`text-xs flex items-center transition-all duration-300 ${
+                  displayMarketData.dow.change >= 0 ? "text-green-600" : "text-red-600"
+                }`}
+              >
+                {displayMarketData.dow.change >= 0 ? (
+                  <TrendingUp className="h-3 w-3 mr-1" />
+                ) : (
+                  <TrendingDown className="h-3 w-3 mr-1" />
+                )}
+                {displayMarketData.dow.change}%
+              </p>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Main Content Tabs */}
         <Tabs defaultValue="portfolio" className="space-y-4">
